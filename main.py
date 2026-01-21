@@ -111,8 +111,7 @@ class SparseNeuralNet(nn.Module):
 def train_model(model, train_loader, val_data, epochs=50, is_sparse=False):
     print(f"\nRozpoczynam trening: {model.__class__.__name__}...")
     criterion = nn.MSELoss()
-    criterion_none = nn.MSELoss(reduction='none')
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
 
