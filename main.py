@@ -22,28 +22,28 @@ df = pd.read_csv(f"{path}/creditcard.csv")
 normal_transaction_data = df[df['Class'] == 0].drop('Class', axis=1)
 fraud_transaction_data = df[df['Class'] == 1].drop('Class', axis=1)
 
+X_train_norm, X_temp_norm = train_test_split(normal_transaction_data, test_size=0.2)
+X_val_norm, X_test_norm = train_test_split(X_temp_norm, test_size=0.5)
+
 scaler = StandardScaler()
 
+scaler.fit(X_train_norm)
 
-scaler.fit(df.drop('Class', axis=1))
-
-
-X_normal_scaled = scaler.transform(normal_transaction_data)
+X_train_norm_scaled = scaler.transform(X_train_norm)
+X_val_norm_scaled = scaler.transform(X_val_norm)
+X_test_norm_scaled = scaler.transform(X_test_norm)
 X_fraud_scaled = scaler.transform(fraud_transaction_data)
 
 
-X_train_norm, X_temp_norm = train_test_split(X_normal_scaled, test_size=0.2)
-X_val_norm, X_test_norm = train_test_split(X_temp_norm, test_size=0.5)
-
-X_test = np.vstack([X_test_norm, X_fraud_scaled])
-y_test = np.array([0] * len(X_test_norm) + [1] * len(X_fraud_scaled))
+X_test_scaled = np.vstack([X_test_norm_scaled, X_fraud_scaled])
+y_test = np.array([0] * len(X_test_norm_scaled) + [1] * len(X_fraud_scaled))
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Używane urządzenie: {device}")
 
-X_val_tensor = torch.FloatTensor(X_val_norm).to(device)
-X_test_tensor = torch.FloatTensor(X_test).to(device)
-train_loader = DataLoader(TensorDataset(torch.FloatTensor(X_train_norm).to(device)), batch_size=1024, shuffle=True)
+X_val_tensor = torch.FloatTensor(X_val_norm_scaled).to(device)
+X_test_tensor = torch.FloatTensor(X_test_scaled).to(device)
+train_loader = DataLoader(TensorDataset(torch.FloatTensor(X_train_norm_scaled).to(device)), batch_size=1024, shuffle=True)
 
 class SimpleNeuralNet(nn.Module):
   def __init__(self):
@@ -111,8 +111,7 @@ class SparseNeuralNet(nn.Module):
 def train_model(model, train_loader, val_data, epochs=50, is_sparse=False):
     print(f"\nRozpoczynam trening: {model.__class__.__name__}...")
     criterion = nn.MSELoss()
-    criterion_none = nn.MSELoss(reduction='none')
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
 
@@ -206,9 +205,9 @@ for name, (architecture, sparse) in models.items():
 
 # PCA - to jest upraszczacz, który uczy się jak zapamiętywać, używając 10 bardzo ważnych informacji.
 # Jeżeli nowe dane są podobne do początkowych, MSE jest niskie.
-pca = PCA(n_components=10).fit(X_train_norm)
-pca_rec = pca.inverse_transform(pca.transform(X_test)) # Opisujemy za pomocą 10 ważnych informacji a potem próbujemy odbudować dane z pamięci.
-results["PCA"] = {"mse": np.mean((X_test - pca_rec)**2, axis=1), "history": None}
+pca = PCA(n_components=10).fit(X_train_norm_scaled)
+pca_rec = pca.inverse_transform(pca.transform(X_test_scaled)) # Opisujemy za pomocą 10 ważnych informacji a potem próbujemy odbudować dane z pamięci.
+results["PCA"] = {"mse": np.mean((X_test_scaled - pca_rec)**2, axis=1), "history": None}
 
 fig, axes = plt.subplots(len(results), 3, figsize=(18, 5 * len(results)))
 
