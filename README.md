@@ -51,3 +51,5 @@ In the financial industry, fraudulent transactions are rare events (anomalies). 
     ```python
     python main.py
     ```
+
+    The model with deep architecture on hugging face: https://huggingface.co/Jassiko6/credit-card-fraud-detection
