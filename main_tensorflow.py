@@ -12,6 +12,10 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from sklearn.metrics import roc_curve, roc_auc_score
 
+# Set seeds for reproducibility
+np.random.seed(0)
+tf.random.set_seed(0)
+
 path = kagglehub.dataset_download("mlg-ulb/creditcardfraud")
 
 df = pd.read_csv(f"{path}/creditcard.csv")
@@ -27,12 +31,12 @@ scaler = StandardScaler()
 scaler.fit(X_train)
 
 X_train_scaled = scaler.transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+X_test_scaled_knn = scaler.transform(X_test)
 
 n_neighbors = 5
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
 knn.fit(X_train_scaled, y_train)
-y_proba = knn.predict_proba(X_test_scaled)[:, 1]
+y_proba = knn.predict_proba(X_test_scaled_knn)[:, 1]
 fpr_knn, tpr_knn, thresholds_knn = roc_curve(y_test, y_proba)
 auc_knn = roc_auc_score(y_test, y_proba)
 
@@ -44,11 +48,11 @@ X_val_nf = X_val[y_val == 0]
 scaler = StandardScaler()
 X_train_nf_scaled = scaler.fit_transform(X_train_nf)
 X_val_nf_scaled = scaler.transform(X_val_nf)
-X_test_scaled = scaler.transform(X_test)
+X_test_scaled_ae = scaler.transform(X_test)
 
 X_train_nf_tensor = tf.convert_to_tensor(X_train_nf_scaled, dtype=tf.float32)
 X_val_nf_tensor = tf.convert_to_tensor(X_val_nf_scaled, dtype=tf.float32)
-X_test_tensor = tf.convert_to_tensor(X_test_scaled, dtype=tf.float32)
+X_test_tensor = tf.convert_to_tensor(X_test_scaled_ae, dtype=tf.float32)
 
 class SimpleAutoencoder(Model):
     def __init__(self):
@@ -166,11 +170,11 @@ for name, model in models.items():
     results[name] = {"history": history.history, "mse": mse}
 
 
-pca = PCA(n_components=10).fit(X_train_nf_scaled)
-pca_rec = pca.inverse_transform(pca.transform(X_test_scaled))
+pca = PCA(n_components=10, random_state=0).fit(X_train_nf_scaled)
+pca_rec = pca.inverse_transform(pca.transform(X_test_scaled_ae))
 
 results["PCA"] = {
-    "mse": np.mean((X_test_scaled - pca_rec) ** 2, axis=1),
+    "mse": np.mean((X_test_scaled_ae - pca_rec) ** 2, axis=1),
     "history": None,
 }
 
@@ -183,6 +187,7 @@ plt.title("Model Losses")
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.legend()
+plt.tight_layout()
 plt.savefig("model_losses.png")
 plt.show()
 
@@ -199,6 +204,7 @@ plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
 plt.title("ROC Curves")
 plt.legend()
+plt.tight_layout()
 plt.savefig("roc_curves.png")
 plt.show()
 
@@ -210,7 +216,7 @@ for name, result in results.items():
     y_pred = (result["mse"] > threshold).astype(int)
     model_predictions[name] = y_pred
 
-model_predictions["k-NN"] = knn.predict(X_test_scaled)
+model_predictions["k-NN"] = knn.predict(X_test_scaled_knn)
 
 num_models = len(model_predictions)
 cols = 2
@@ -253,6 +259,7 @@ plt.hist(best_mse[y_test == 1], bins=100, alpha=0.5, label="Fraud", density=True
 plt.title("Reconstruction Error Distribution (Deep AE)")
 plt.xlabel("MSE")
 plt.legend()
+plt.tight_layout()
 plt.show()
 
 print(f"Normal mean MSE: {best_mse[y_test == 0].mean():.6f}")
