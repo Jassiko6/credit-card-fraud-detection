@@ -36,17 +36,6 @@ y_proba = knn.predict_proba(X_test_scaled)[:, 1]
 fpr_knn, tpr_knn, thresholds_knn = roc_curve(y_test, y_proba)
 auc_knn = roc_auc_score(y_test, y_proba)
 
-print(auc_knn)
-
-fig, ax = plt.subplots()
-ax.plot(fpr_knn, tpr_knn)
-ax.text(0.8, 0.1, f"AUC = {auc_knn:.3f}", size="small")
-ax.set_xlabel("False Positive Rate")
-ax.set_ylabel("True Positive Rate")
-ax.set_title("ROC Curve for K-NN Classifier")
-plt.savefig(f"roc_curve_knn_{n_neighbors}_neighbors_auc_{round(auc_knn, 5)}.png")
-plt.show()
-
 
 # "nf" means "not fraudulent"
 X_train_nf = X_train[y_train == 0]
