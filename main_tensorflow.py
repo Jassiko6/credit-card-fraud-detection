@@ -14,6 +14,7 @@ from sklearn.metrics import (
     ConfusionMatrixDisplay,
     classification_report
 )
+from sklearn.metrics import roc_curve, roc_auc_score
 
 path = kagglehub.dataset_download("mlg-ulb/creditcardfraud")
 
@@ -36,35 +37,54 @@ scaler.fit(X_train)
 
 X_train_scaled = scaler.transform(X_train)
 X_test_scaled = scaler.transform(X_test)
-
-knn = KNeighborsClassifier(n_neighbors=5)
+n_neighbors = 1
+knn = KNeighborsClassifier(n_neighbors=n_neighbors)
 knn.fit(X_train_scaled, y_train)
-y_pred = knn.predict(X_test_scaled)
+y_proba = knn.predict_proba(X_test_scaled)[:, 1]
+fpr_knn, tpr_knn, thresholds_knn = roc_curve(y_test, y_proba)
+auc_knn = roc_auc_score(y_test, y_proba)
+
+print(auc_knn)
+
+fig, ax = plt.subplots()
+ax.plot(fpr_knn, tpr_knn)
+ax.text(
+    0.8, 0.1,
+    f"AUC = {auc_knn:.3f}",
+    size='small'
+)
+ax.set_xlabel("False Positive Rate")
+ax.set_ylabel("True Positive Rate")
+ax.set_title("ROC Curve for K-NN Classifier")
+plt.savefig(f"roc_curve_knn_{n_neighbors}_neighbors_auc_{round(auc_knn, 5)}.png")
+plt.show()
 
 
-X_train = X_train[y_train == 0]
-X_val = X_val[y_val == 0]
-
+# "nf" means "not fraudulent"
+X_train_nf = X_train[y_train == 0]
+X_val_nf = X_val[y_val == 0]
 
 scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_val_scaled = scaler.transform(X_val)
+X_train_nf_scaled = scaler.fit_transform(X_train_nf)
+X_val_nf_scaled = scaler.transform(X_val_nf)
 X_test_scaled = scaler.transform(X_test)
 
 
-X_train_tensor = tf.convert_to_tensor(X_train_scaled, dtype=tf.float32)
-X_val_tensor = tf.convert_to_tensor(X_val_scaled, dtype=tf.float32)
+X_train_nf_tensor = tf.convert_to_tensor(X_train_nf_scaled, dtype=tf.float32)
+X_val_nf_tensor = tf.convert_to_tensor(X_val_nf_scaled, dtype=tf.float32)
 X_test_tensor = tf.convert_to_tensor(X_test_scaled, dtype=tf.float32)
 
 class SimpleAutoencoder(Model):
     def __init__(self):
         super().__init__()
         self.encoder = tf.keras.Sequential([
-            layers.Dense(20, activation="relu"),
-            layers.Dense(10, activation="relu")
+            layers.Dense(30, activation="relu"),
+            layers.Dense(15, activation="relu"),
+            layers.Dense(7, activation="relu")
         ])
         self.decoder = tf.keras.Sequential([
-            layers.Dense(20, activation="relu"),
+            layers.Dense(7, activation="relu"),
+            layers.Dense(15, activation="relu"),
             layers.Dense(30)
         ])
 
@@ -77,12 +97,14 @@ class DeepAutoencoder(Model):
     def __init__(self):
         super().__init__()
         self.encoder = tf.keras.Sequential([
-            layers.Dense(20, activation="relu"),
+            layers.Dense(30, activation="relu"),
             layers.Dropout(0.2),
+            layers.Dense(20, activation="relu"),
             layers.Dense(10, activation="relu"),
             layers.Dense(5, activation="relu")
         ])
         self.decoder = tf.keras.Sequential([
+            layers.Dense(5, activation="relu"),
             layers.Dense(10, activation="relu"),
             layers.Dense(20, activation="relu"),
             layers.Dense(30)
@@ -99,10 +121,12 @@ class SparseAutoencoder(Model):
         self.l1_lambda = l1_lambda
 
         self.encoder = tf.keras.Sequential([
+            layers.Dense(30, activation="relu"),
             layers.Dense(15, activation="relu"),
             layers.Dense(7, activation="relu")
         ])
         self.decoder = tf.keras.Sequential([
+            layers.Dense(7, activation="relu"),
             layers.Dense(15, activation="relu"),
             layers.Dense(30)
         ])
@@ -144,7 +168,6 @@ def get_mse(model, X):
 
 
 
-
 models = {
     "Basic": SimpleAutoencoder(),
     "Deep": DeepAutoencoder(),
@@ -155,7 +178,8 @@ results = {}
 
 for name, model in models.items():
     print(f"\nTraining {name} autoencoder...")
-    history = train_model(model, X_train_tensor, X_val_tensor)
+    history = train_model(model, X_train_nf_tensor, X_val_nf_tensor)
+
     mse = get_mse(model, X_test_tensor)
 
     results[name] = {
@@ -165,14 +189,13 @@ for name, model in models.items():
 
 
 
-pca = PCA(n_components=10).fit(X_train_scaled)
+pca = PCA(n_components=10).fit(X_train_nf_scaled)
 pca_rec = pca.inverse_transform(pca.transform(X_test_scaled))
 
 results["PCA"] = {
     "mse": np.mean((X_test_scaled - pca_rec) ** 2, axis=1),
     "history": None
 }
-
 
 fig, axes = plt.subplots(len(results), 3, figsize=(18, 5 * len(results)))
 
@@ -188,15 +211,7 @@ for i, (name, result) in enumerate(results.items()):
         ax_loss.text(0.5, 0.5, "PCA (no training loss)", ha="center")
 
     ax_acc = axes[i, 1]
-    if result["history"]:
-        train_acc = 1 - np.array(result["history"]["loss"])
-        val_acc = 1 - np.array(result["history"]["val_loss"])
-        ax_acc.plot(train_acc, label="Train")
-        ax_acc.plot(val_acc, label="Val")
-        ax_acc.set_title(f"{name}: Reconstruction Accuracy")
-        ax_acc.legend()
-    else:
-        ax_acc.text(0.5, 0.5, "PCA (no accuracy)", ha="center")
+
 
     mse_normal = result["mse"][y_test == 0]
     threshold = np.percentile(mse_normal, 90)
@@ -207,9 +222,23 @@ for i, (name, result) in enumerate(results.items()):
     ConfusionMatrixDisplay(
         cm,
         display_labels=["Normal", "Fraud"]
-    ).plot(ax=axes[i, 2], colorbar=False)
+    ).plot(ax=axes[i, 1], colorbar=False)
 
-    axes[i, 2].set_title(f"{name}: Confusion Matrix")
+    axes[i, 1].set_title(f"{name}: Confusion Matrix")
+
+    ax_roc = axes[i, 2]
+    fpr, tpr, thresholds = roc_curve(y_test, result['mse'])
+    roc_auc = roc_auc_score(y_test, result['mse'])
+    ax_roc.plot(fpr, tpr)
+    ax_roc.set_xlabel("False Positive Rate")
+    ax_roc.set_ylabel("True Positive Rate")
+    ax_roc.set_title(f"ROC Curve for {name}")
+    ax_roc.text(
+        0.8, 0.1,
+        f"AUC = {roc_auc:.3f}",
+        size='small'
+    )
+
 
     print(f"\n{'='*30}")
     print(f"MODEL: {name}")
@@ -219,6 +248,7 @@ for i, (name, result) in enumerate(results.items()):
 
 plt.tight_layout()
 plt.show()
+plt.savefig("autoencoders_train_val_losses_roc_curves_and_confusion_matrices.png")
 
 
 best_mse = results["Deep"]["mse"]
