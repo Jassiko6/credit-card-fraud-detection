@@ -37,7 +37,7 @@ scaler.fit(X_train)
 
 X_train_scaled = scaler.transform(X_train)
 X_test_scaled = scaler.transform(X_test)
-n_neighbors = 1
+n_neighbors = 5
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
 knn.fit(X_train_scaled, y_train)
 y_proba = knn.predict_proba(X_test_scaled)[:, 1]
@@ -140,7 +140,7 @@ class SparseAutoencoder(Model):
 
 
 
-def train_model(model, X_train, X_val, epochs=50):
+def train_model(model, X_train, X_val, epochs=5):
     model.compile(
         optimizer="adam",
         loss=losses.MeanSquaredError()
@@ -197,58 +197,76 @@ results["PCA"] = {
     "history": None
 }
 
-fig, axes = plt.subplots(len(results), 3, figsize=(18, 5 * len(results)))
-
-for i, (name, result) in enumerate(results.items()):
-
-    ax_loss = axes[i, 0]
+plt.figure(figsize=(10, 6))
+for name, result in results.items():
     if result["history"]:
-        ax_loss.plot(result["history"]["loss"], label="Train")
-        ax_loss.plot(result["history"]["val_loss"], label="Val")
-        ax_loss.set_title(f"{name}: Loss")
-        ax_loss.legend()
-    else:
-        ax_loss.text(0.5, 0.5, "PCA (no training loss)", ha="center")
+        plt.plot(result["history"]["loss"], label=f"{name} Train")
+        plt.plot(result["history"]["val_loss"], linestyle="--", label=f"{name} Val")
+plt.title("Model Losses")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.savefig("model_losses.png")
+plt.show()
 
-    ax_acc = axes[i, 1]
+plt.figure(figsize=(10, 6))
+plt.plot(fpr_knn, tpr_knn, label=f"k-NN (AUC = {auc_knn:.3f})")
 
+for name, result in results.items():
+    fpr, tpr, thresholds = roc_curve(y_test, result['mse'])
+    roc_auc = roc_auc_score(y_test, result['mse'])
+    plt.plot(fpr, tpr, label=f"{name} (AUC = {roc_auc:.3f})")
 
+plt.plot([0, 1], [0, 1], 'k--', label="Random")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curves")
+plt.legend()
+plt.savefig("roc_curves.png")
+plt.show()
+
+model_predictions = {}
+
+for name, result in results.items():
     mse_normal = result["mse"][y_test == 0]
     threshold = np.percentile(mse_normal, 90)
-
     y_pred = (result["mse"] > threshold).astype(int)
+    model_predictions[name] = y_pred
 
+model_predictions["k-NN"] = knn.predict(X_test_scaled)
+
+num_models = len(model_predictions)
+cols = 2
+rows = (num_models + 1) // 2
+
+fig, axes = plt.subplots(rows, cols, figsize=(12, 6 * rows))
+axes = axes.flatten()
+
+for i, (name, y_pred) in enumerate(model_predictions.items()):
     cm = confusion_matrix(y_test, y_pred)
     ConfusionMatrixDisplay(
         cm,
         display_labels=["Normal", "Fraud"]
-    ).plot(ax=axes[i, 1], colorbar=False)
-
-    axes[i, 1].set_title(f"{name}: Confusion Matrix")
-
-    ax_roc = axes[i, 2]
-    fpr, tpr, thresholds = roc_curve(y_test, result['mse'])
-    roc_auc = roc_auc_score(y_test, result['mse'])
-    ax_roc.plot(fpr, tpr)
-    ax_roc.set_xlabel("False Positive Rate")
-    ax_roc.set_ylabel("True Positive Rate")
-    ax_roc.set_title(f"ROC Curve for {name}")
-    ax_roc.text(
-        0.8, 0.1,
-        f"AUC = {roc_auc:.3f}",
-        size='small'
-    )
-
+    ).plot(ax=axes[i], colorbar=False)
+    
+    axes[i].set_title(f"{name}: Confusion Matrix")
 
     print(f"\n{'='*30}")
     print(f"MODEL: {name}")
-    print(f"Threshold: {threshold:.6f}")
+    
+    if name in results:
+        mse_normal = results[name]["mse"][y_test == 0]
+        threshold = np.percentile(mse_normal, 90)
+        print(f"Threshold: {threshold:.6f}")
+        
     print(classification_report(y_test, y_pred))
 
+for j in range(num_models, len(axes)):
+    axes[j].axis('off')
 
 plt.tight_layout()
+plt.savefig("confusion_matrices.png")
 plt.show()
-plt.savefig("autoencoders_train_val_losses_roc_curves_and_confusion_matrices.png")
 
 
 best_mse = results["Deep"]["mse"]
