@@ -216,12 +216,12 @@ plt.savefig("results/metrics_imgs/confusion_matrices.png")
 plt.show()
 
 
-best_mse = results["Deep"]["mse"]
+best_mse = results["Basic"]["mse"]
 
 plt.figure(figsize=(10, 6))
 plt.hist(best_mse[y_test == 0], bins=100, alpha=0.5, label="Normal", density=True)
 plt.hist(best_mse[y_test == 1], bins=100, alpha=0.5, label="Fraud", density=True)
-plt.title("Reconstruction Error Distribution (Deep AE)")
+plt.title("Reconstruction Error Distribution (Simple AE)")
 plt.xlabel("MSE")
 plt.legend()
 plt.tight_layout()

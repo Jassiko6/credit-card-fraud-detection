@@ -57,19 +57,25 @@ Wynik AUC wszystkich modeli jest wysoki, zwłaszcza autoenkoderów, co oznacza, 
 
 ![model_losses.png](results/metrics_imgs/model_losses.png)
 
-Wykresy uzyskanych strat wskazują, że modele dobrze nauczyły się rekonstruować transakcje bez anomalii. Nagłe skoki w stracie walidacyjnej sugerują, że prawdopodobnie modele gorzej rekonstruowały niektóre transakcje, których nie widzały poczas treningu.
+Wykresy uzyskanych strat wskazują, że modele dobrze nauczyły się rekonstruować transakcje bez anomalii, choć wykres straty walidacyjnej modelu bazowego sugeruje tendencje do przeuczenia. Fluktuacje w stracie walidacyjnej sugerują, że prawdopodobnie modele gorzej rekonstruowały niektóre transakcje, których nie widzały poczas treningu.
 
 ### Krzywe ROC i wyniki AUC
 
 ![roc_curves.png](results/metrics_imgs/roc_curves.png)
 
-Przy bardzo wysokim progu decyzji najlepiej się sprawdzała technika k najbliższych sąsiadów. Wraz z obniżaniem wartości progu decyzji, przewaga tej techniki nad innymi modelami coraz bardziej malała. Modele - prosty, głęboki, oraz PCA osiągnęły podobne wyniki i radziły sobie lepiej od metody k najbliższych sąsiadów, kiedy próg był nieco niższy. 
+Przy bardzo wysokim progu decyzji najlepiej się sprawdzała technika k najbliższych sąsiadów. Wraz z obniżaniem wartości progu decyzji, przewaga tej techniki nad innymi modelami coraz bardziej malała, aż jej wynik stał się najgorszy od około wartości 0.2 False Positive Rate. Autoenkodery, osiągnęły podobne wyniki i radziły sobie lepiej od metody k najbliższych sąsiadów, kiedy próg był nieco niższy. 
 
 ### Macierze pomyłek
 
 ![confusion_matrices.png](results/metrics_imgs/confusion_matrices.png)
 
-Najlepiej wykrywały anomalie model prosty i PCA. Wszystkie modele bardzo dobrze klasyfikowały brak anomalii w stosunku do liczby wszystkich próbek znajdujących się w zbiorze testowym, jednak autoenkodery oznczały dużo transakcji tego rodzaju jako anomalie, co również mogłoby przynieść duże koszty.
+Najwięcej anomalii model prosty. Wszystkie modele bardzo dobrze klasyfikowały brak anomalii w stosunku do liczby wszystkich próbek znajdujących się w zbiorze testowym. Wszystkie autoenkodery wykryły ich więcej, niż k-NN, ale oznczały uzyskały dużo wartości fałszywie pozytywnych, co również mogłoby przynieść duże koszty.
+
+### Rozkład błędów rekonstrukcji
+
+![reconstruction_error_distribution.png](results/metrics_imgs/reconstruction_error_distribution.png)
+
+Większość normalnych transakcji ma niski błąd, ponieważ autoenkoder uczył się na zbiorze bez anomalii, więc różnica w rekonstrukcji powinna być mała. Z kolei fałszywe transakcje mają wysoki błąd, ponieważ model nie potrafi ich dobrze zrekonstruować, gdy nie widział ich w trakcie treningu.
 
 ## Porówanie z wynikami osiągniętymi w publikacjach wykorzystujących ten sam zbiór danych
 
@@ -91,6 +97,10 @@ W publikacjach, dotyczących tego zbioru danych stosowano różne techniki klasy
 Porównując nasze modele z tymi z publikacji, nasze autoenkodery uzyskały najgorszą precyzję, a k-NN najlepszą. Autoenkodery z [^4] miały podobne wyniki tej metryki, co wynika z tego samego powodu co w naszym rozwiązaniu, czyli dużej ilości przypadków fałszywyie pozytywnych.<br />
 Czułość wszystkich naszych autoenkoderów była lepsza, niż u [^4], poza przypadkiem, próg klasyfikacji w [^4] był równy 0.7. To sugeruje, że sugeruje, że niezależnie od architektury, taka minimalna wartość progu uzyskała najlepszy wynik wykrywania anomalii, oczywiście kosztem wielu dodatkowych przypadków fałszywyie pozytywnych.<br />
 Metryka F1 podsumowuje te obserwacje, wskazując na duże dysproporcje między wartością czułości, a precyzji u autoenkoderów, z czym pozostałe techniki, prócz regresji logistycznej, nie miały tak dużego problemu.
+
+## Konkluzje
+
+Wszystkie użyte modele dobrze odróżniały anomalie od normalnych transakcji, natomiast nawet taka ilość jakiej nie udało im się przewidzieć mogłaby przynieść wielkie straty finansowe, jako że wśród 284,807 transakcji, które miały miejsce w ciągu 48 godzin, nasz najlepszy autoenkoder (prosty) nie sklasyfikował 6 fałszywych transakcji i podniósł 2844 fałszywych alarmów. Aby poprawić wyniki autoenkoderów, powinniśmy zastosować optymalizację hiperparametrów, a u k-NN moglibyśmy na przykład zrównoważyć klasy.   
 
 ## Bibliografia
 
