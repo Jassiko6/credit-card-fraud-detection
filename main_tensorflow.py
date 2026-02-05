@@ -12,9 +12,13 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from sklearn.metrics import roc_curve, roc_auc_score
 
-# Set seeds for reproducibility
+import joblib
+from model_definitions import SimpleAutoencoder, DeepAutoencoder, SparseAutoencoder
+
 np.random.seed(0)
 tf.random.set_seed(0)
+
+models = {}
 
 path = kagglehub.dataset_download("mlg-ulb/creditcardfraud")
 
@@ -27,8 +31,14 @@ y = df["Class"].values
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=0)
 X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=0.5, stratify=y_test, random_state=0)
 
+scalers = {}
+
 scaler = StandardScaler()
 scaler.fit(X_train)
+
+scalers["k-NN"] = scaler
+
+joblib.dump(scaler, "serialized_objects/scalers/scaler_knn.joblib")
 
 X_train_scaled = scaler.transform(X_train)
 X_test_scaled_knn = scaler.transform(X_test)
@@ -36,6 +46,11 @@ X_test_scaled_knn = scaler.transform(X_test)
 n_neighbors = 5
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
 knn.fit(X_train_scaled, y_train)
+
+models["k-NN"] = knn
+
+joblib.dump(knn, "serialized_objects/models/knn_model.joblib")
+
 y_proba = knn.predict_proba(X_test_scaled_knn)[:, 1]
 fpr_knn, tpr_knn, thresholds_knn = roc_curve(y_test, y_proba)
 auc_knn = roc_auc_score(y_test, y_proba)
@@ -50,86 +65,13 @@ X_train_nf_scaled = scaler.fit_transform(X_train_nf)
 X_val_nf_scaled = scaler.transform(X_val_nf)
 X_test_scaled_ae = scaler.transform(X_test)
 
+scalers["ae"] = scaler
+
+joblib.dump(scaler, "serialized_objects/scalers/scaler_ae.joblib")
+
 X_train_nf_tensor = tf.convert_to_tensor(X_train_nf_scaled, dtype=tf.float32)
 X_val_nf_tensor = tf.convert_to_tensor(X_val_nf_scaled, dtype=tf.float32)
 X_test_tensor = tf.convert_to_tensor(X_test_scaled_ae, dtype=tf.float32)
-
-class SimpleAutoencoder(Model):
-    def __init__(self):
-        super().__init__()
-        self.encoder = tf.keras.Sequential(
-            [
-                layers.Dense(30, activation="relu"),
-                layers.Dense(15, activation="relu"),
-                layers.Dense(7, activation="relu"),
-            ]
-        )
-        self.decoder = tf.keras.Sequential(
-            [
-                layers.Dense(7, activation="relu"),
-                layers.Dense(15, activation="relu"),
-                layers.Dense(30),
-            ]
-        )
-
-    def call(self, x):
-        encoded = self.encoder(x)
-        return self.decoder(encoded)
-
-
-class DeepAutoencoder(Model):
-    def __init__(self):
-        super().__init__()
-        self.encoder = tf.keras.Sequential(
-            [
-                layers.Dense(30, activation="relu"),
-                layers.Dropout(0.2),
-                layers.Dense(20, activation="relu"),
-                layers.Dense(10, activation="relu"),
-                layers.Dense(5, activation="relu"),
-            ]
-        )
-        self.decoder = tf.keras.Sequential(
-            [
-                layers.Dense(5, activation="relu"),
-                layers.Dense(10, activation="relu"),
-                layers.Dense(20, activation="relu"),
-                layers.Dense(30),
-            ]
-        )
-
-    def call(self, x):
-        encoded = self.encoder(x)
-        return self.decoder(encoded)
-
-
-class SparseAutoencoder(Model):
-    def __init__(self, l1_lambda=1e-4):
-        super().__init__()
-        self.l1_lambda = l1_lambda
-
-        self.encoder = tf.keras.Sequential(
-            [
-                layers.Dense(30, activation="relu"),
-                layers.Dense(15, activation="relu"),
-                layers.Dense(7, activation="relu"),
-            ]
-        )
-        self.decoder = tf.keras.Sequential(
-            [
-                layers.Dense(7, activation="relu"),
-                layers.Dense(15, activation="relu"),
-                layers.Dense(30),
-            ]
-        )
-
-    def call(self, x):
-        encoded = self.encoder(x)
-        decoded = self.decoder(encoded)
-
-        self.add_loss(self.l1_lambda * tf.reduce_sum(tf.abs(encoded)))
-        return decoded
-
 
 def train_model(model, X_train, X_val, epochs=50):
     model.compile(optimizer="adam", loss=losses.MeanSquaredError())
@@ -153,30 +95,53 @@ def get_mse(model, X):
     return mse.numpy()
 
 
-models = {
+autoencoders = {
     "Basic": SimpleAutoencoder(),
     "Deep": DeepAutoencoder(),
     "Sparse": SparseAutoencoder(),
 }
 
 results = {}
+thresholds = {}
 
-for name, model in models.items():
+for name, model in autoencoders.items():
     print(f"\nTraining {name} autoencoder...")
     history = train_model(model, X_train_nf_tensor, X_val_nf_tensor)
+
+    models[name] = model
 
     mse = get_mse(model, X_test_tensor)
 
     results[name] = {"history": history.history, "mse": mse}
 
+    mse_normal = mse[y_test == 0]
+    threshold = np.percentile(mse_normal, 90)
+    thresholds[name] = threshold
+
 
 pca = PCA(n_components=10, random_state=0).fit(X_train_nf_scaled)
 pca_rec = pca.inverse_transform(pca.transform(X_test_scaled_ae))
+models["PCA"] = pca
+
+print("Saving models...")
+for name, model in models.items():
+     if isinstance(model, tf.keras.Model):
+         model.save(f"{name}_model.keras")
+     else:
+         joblib.dump(model, f"serialized_objects/models/{name}_model.joblib")
+
+mse_pca = np.mean((X_test_scaled_ae - pca_rec) ** 2, axis=1)
+mse_pca_normal = mse_pca[y_test == 0]
+threshold_pca = np.percentile(mse_pca_normal, 90)
+thresholds["PCA"] = threshold_pca
 
 results["PCA"] = {
-    "mse": np.mean((X_test_scaled_ae - pca_rec) ** 2, axis=1),
+    "mse": mse_pca,
     "history": None,
 }
+
+joblib.dump(thresholds, "serialized_objects/thresholds/thresholds.joblib")
+
 
 plt.figure(figsize=(10, 6))
 for name, result in results.items():
@@ -188,7 +153,7 @@ plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.legend()
 plt.tight_layout()
-plt.savefig("model_losses.png")
+plt.savefig("results/metrics_imgs/model_losses.png")
 plt.show()
 
 plt.figure(figsize=(10, 6))
@@ -205,7 +170,7 @@ plt.ylabel("True Positive Rate")
 plt.title("ROC Curves")
 plt.legend()
 plt.tight_layout()
-plt.savefig("roc_curves.png")
+plt.savefig("results/metrics_imgs/roc_curves.png")
 plt.show()
 
 model_predictions = {}
@@ -247,19 +212,20 @@ for j in range(num_models, len(axes)):
     axes[j].axis("off")
 
 plt.tight_layout()
-plt.savefig("confusion_matrices.png")
+plt.savefig("results/metrics_imgs/confusion_matrices.png")
 plt.show()
 
 
-best_mse = results["Deep"]["mse"]
+best_mse = results["Basic"]["mse"]
 
 plt.figure(figsize=(10, 6))
 plt.hist(best_mse[y_test == 0], bins=100, alpha=0.5, label="Normal", density=True)
 plt.hist(best_mse[y_test == 1], bins=100, alpha=0.5, label="Fraud", density=True)
-plt.title("Reconstruction Error Distribution (Deep AE)")
+plt.title("Reconstruction Error Distribution (Simple AE)")
 plt.xlabel("MSE")
 plt.legend()
 plt.tight_layout()
+plt.savefig("results/metrics_imgs/reconstruction_error_distribution.png")
 plt.show()
 
 print(f"Normal mean MSE: {best_mse[y_test == 0].mean():.6f}")
